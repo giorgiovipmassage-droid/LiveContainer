@@ -23,8 +23,11 @@ struct LCTabView: View {
     
     var body: some View {
         Group {
-            // Only show Settings tab — all other tabs are hidden
-            LCSettingsView(appDataFolderNames: $appDataFolderNames)
+            // Show only the Data Management view as the sole root screen
+            NavigationView {
+                LCDataManagementView(appDataFolderNames: $appDataFolderNames)
+            }
+            .navigationViewStyle(StackNavigationViewStyle())
         }
         .alert("lc.common.error".loc, isPresented: $errorShow){
             Button("lc.common.ok".loc, action: {
