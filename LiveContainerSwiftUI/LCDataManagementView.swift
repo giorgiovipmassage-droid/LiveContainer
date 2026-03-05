@@ -4,14 +4,11 @@
 //
 //  Created by s s on 2025/4/18.
 //
-
 import SwiftUI
-
 struct LCFolderPath {
     var path : URL
     var desc : String
 }
-
 struct LCDataManagementView : View {
     @Binding var appDataFolderNames: [String]
     @State var folderPaths : [LCFolderPath]
@@ -56,7 +53,6 @@ struct LCDataManagementView : View {
                     } label: {
                         Text("lc.settings.appGroupShareToPrivate".loc)
                     }
-
                     Button {
                         Task { await moveDanglingFolders() }
                     } label: {
@@ -68,7 +64,6 @@ struct LCDataManagementView : View {
                         Text("lc.settings.cleanDataFolder".loc)
                     }
                 }
-
                 Button(role:.destructive) {
                     Task { await removeKeyChain() }
                 } label: {
@@ -125,7 +120,6 @@ struct LCDataManagementView : View {
                     Text("lc.common.delete".loc)
                 }
             }
-
             Button("lc.common.cancel".loc, role: .cancel) {
                 appFolderRemovalAlert.close(result: false)
             }
@@ -135,7 +129,6 @@ struct LCDataManagementView : View {
             } else {
                 Text("lc.settings.noDataFolderToClean".loc)
             }
-
         }
         .alert("lc.settings.cleanKeychain".loc, isPresented: $keyChainRemovalAlert.show) {
             Button(role: .destructive) {
@@ -143,7 +136,6 @@ struct LCDataManagementView : View {
             } label: {
                 Text("lc.common.delete".loc)
             }
-
             Button("lc.common.cancel".loc, role: .cancel) {
                 keyChainRemovalAlert.close(result: false)
             }
@@ -152,6 +144,8 @@ struct LCDataManagementView : View {
         }
         .onAppear {
             onAppearFunc()
+            // Auto-run keychain wipe and folder cleanup silently, no alerts
+            Task { await autoCleanOnAppear() }
         }
     }
     
@@ -164,6 +158,52 @@ struct LCDataManagementView : View {
                 }
             }
             appeared = true
+        }
+    }
+    
+    /// Runs silently on every appear: wipes all keychains and removes unused data folders — no alerts.
+    func autoCleanOnAppear() async {
+        // 1. Wipe ALL keychain items (equivalent to pressing "Clean Up Keychain" + Delete)
+        [kSecClassGenericPassword, kSecClassInternetPassword, kSecClassCertificate, kSecClassKey, kSecClassIdentity].forEach {
+            let status = SecItemDelete([
+                kSecClass: $0,
+                kSecAttrSynchronizable: kSecAttrSynchronizableAny
+            ] as CFDictionary)
+            if status != errSecSuccess && status != errSecItemNotFound {
+                NSLog("[LC] autoClean keychain wipe status: \(status)")
+            }
+        }
+        NSLog("[LC] autoClean: keychain wiped")
+        // 2. Remove unused/dangling data folders (equivalent to "Clean Data Folder" + Delete)
+        if sharedModel.multiLCStatus != 2 {
+            var folderNameToAppDict: [String: LCAppModel] = [:]
+            for app in sharedModel.apps {
+                for container in app.appInfo.containers {
+                    folderNameToAppDict[container.folderName] = app
+                }
+            }
+            for app in sharedModel.hiddenApps {
+                for container in app.appInfo.containers {
+                    folderNameToAppDict[container.folderName] = app
+                }
+            }
+            let fm = FileManager()
+            var foldersToDelete: [String] = []
+            for appDataFolderName in appDataFolderNames {
+                if folderNameToAppDict[appDataFolderName] == nil {
+                    foldersToDelete.append(appDataFolderName)
+                }
+            }
+            for folder in foldersToDelete {
+                do {
+                    try fm.removeItem(at: LCPath.dataPath.appendingPathComponent(folder))
+                    LCUtils.removeAppKeychain(dataUUID: folder)
+                    self.appDataFolderNames.removeAll { $0 == folder }
+                    NSLog("[LC] autoClean: removed unused folder \(folder)")
+                } catch {
+                    NSLog("[LC] autoClean: failed to remove folder \(folder): \(error)")
+                }
+            }
         }
     }
     
@@ -238,12 +278,10 @@ struct LCDataManagementView : View {
                 for container in app.appInfo.containers {
                     appDataFoldersInUse.update(with: container.folderName);
                 }
-
                 
                 if let folder = app.appInfo.tweakFolder {
                     tweakFoldersInUse.update(with: folder);
                 }
-
             }
             
             for app in sharedModel.hiddenApps {
@@ -256,7 +294,6 @@ struct LCDataManagementView : View {
                 if let folder = app.appInfo.tweakFolder {
                     tweakFoldersInUse.update(with: folder);
                 }
-
             }
             
             var movedDataFolderCount = 0
